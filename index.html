@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>flashcard-web-lite · 闪卡与 Leitner 复习</title>
+<style>
+  body { font-family:-apple-system,"PingFang SC",sans-serif; background:#f5f6f8; margin:0; padding:24px; color:#1f2329; }
+  h1 { font-size:20px; }
+  textarea { width:100%; height:60px; padding:8px; border:1px solid #ccc; border-radius:8px; }
+  button { background:#2f6fed; color:#fff; border:none; border-radius:8px; padding:8px 14px; cursor:pointer; margin-right:6px; }
+  button.ghost { background:#e5e7eb; color:#1f2329; }
+  .card { background:#fff; border:1px solid #e2e5ea; border-radius:10px; padding:18px; margin-top:12px; font-size:18px; min-height:50px; }
+  #stats { font-size:13px; color:#6b7280; margin-top:10px; }
+</style>
+</head>
+<body>
+  <h1>闪卡 + Leitner 复习</h1>
+  <textarea id="src" placeholder="每行一张卡：正面=答案，例如：首都=北京"></textarea>
+  <button onclick="build()">生成卡片</button>
+  <button onclick="review()" class="ghost">开始复习</button>
+  <div class="card" id="card">点“生成卡片”开始。</div>
+  <div id="btns" style="margin-top:10px; display:none;">
+    <button onclick="grade(true)">记得</button>
+    <button onclick="grade(false)" class="ghost">忘了</button>
+  </div>
+  <div id="stats"></div>
+
+<!-- FLASH_LOGIC_BEGIN -->
+<script>
+// ===== 纯函数：挖空与 Leitner 盒进退（Node 断言）=====
+function makeCloze(line) {
+  // "正面=答案" -> { front, back }；无 = 则整行作 front。
+  const idx = line.indexOf("=");
+  if (idx < 0) return { front: line, back: "" };
+  return { front: line.slice(0, idx).trim(), back: line.slice(idx + 1).trim() };
+}
+
+function nextBox(current, correct) {
+  // 记对盒号+1，记错回到 1（Leitner）。
+  if (correct) return Math.min(current + 1, 5);
+  return 1;
+}
+
+function dueDays(box) {
+  // 盒越大复习间隔越长：1->1,2->2,3->4,4->7,5->15 天。
+  return [1, 2, 4, 7, 15][Math.max(0, box - 1)];
+}
+// ===== FLASH_LOGIC_END =====
+
+let cards = [], pos = 0;
+
+function load() { try { return JSON.parse(localStorage.getItem("flash_cards")||"[]"); } catch { return []; } }
+function save() { localStorage.setItem("flash_cards", JSON.stringify(cards)); }
+
+function build() {
+  cards = document.getElementById("src").value.split("\n").filter(l => l.trim()).map((line, i) => {
+    const c = makeCloze(line);
+    return Object.assign({ id: i, box: 1, due: 0 }, c);
+  });
+  save();
+  document.getElementById("stats").textContent = `共 ${cards.length} 张卡。`;
+}
+
+function review() {
+  const today = Date.now() / 86400000;
+  const due = cards.filter(c => c.due <= today);
+  pos = 0;
+  if (!due.length) { document.getElementById("card").textContent = "今天没有到期卡片。"; return; }
+  window._due = due;
+  document.getElementById("btns").style.display = "block";
+  showCard();
+}
+
+function showCard() {
+  const c = window._due[pos];
+  document.getElementById("card").textContent = `${c.front} ？（盒 ${c.box}）`;
+}
+
+function grade(correct) {
+  const c = window._due[pos];
+  c.box = nextBox(c.box, correct);
+  c.due = Date.now() / 86400000 + dueDays(c.box);
+  const stored = cards.find(x => x.id === c.id);
+  if (stored) { stored.box = c.box; stored.due = c.due; }
+  save();
+  pos++;
+  if (pos < window._due.length) showCard();
+  else { document.getElementById("card").textContent = "本轮复习完成！"; document.getElementById("btns").style.display="none"; }
+}
+
+cards = load();
+</script>
+</body>
+</html>
